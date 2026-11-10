@@ -8,7 +8,6 @@ import (
 	"api-tests-template/internal/managers/advertisements/models"
 )
 
-// ContainsAdvertisementByTitle проверяет наличие объявления с точным названием.
 func ContainsAdvertisementByTitle(
 	t *testing.T,
 	items []models.Advertisement,
