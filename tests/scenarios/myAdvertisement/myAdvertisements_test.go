@@ -9,11 +9,22 @@ import (
 	"github.com/stretchr/testify/suite"
 	"github.com/tidwall/gjson"
 
+	"api-tests-template/internal/managers/advertisements"
+	advertisementModels "api-tests-template/internal/managers/advertisements/models"
 	"api-tests-template/internal/managers/auth"
 	"api-tests-template/internal/managers/auth/models"
 	"api-tests-template/internal/managers/myAdvertisements"
+	"api-tests-template/internal/utils"
 
 	base "api-tests-template/tests"
+)
+
+const (
+	titlePrefix = "Моё тестовое объявление "
+	description = "Тестовое объявление для проверки списка собственных объявлений."
+	price       = 12500.50
+	quantity    = 2
+	photoPath   = "../../../testdata/bicycle.png"
 )
 
 type TestSuite struct {
@@ -27,6 +38,7 @@ func TestSuiteRun(t *testing.T) {
 
 func (s *TestSuite) SetupSuite() {
 	base.SetupSuite()
+	s.T().Setenv("DEBUG", "false")
 
 	base.Precondition("Авторизация пользователя с кредами из переменных окружения и получение его параметров")
 	s.loginData = auth.Login(s.T(), os.Getenv("TEST_LOGIN"), os.Getenv("TEST_PASSWORD"))
@@ -36,34 +48,32 @@ func (s *TestSuite) TearDownSuite() {
 	base.TearDownSuite()
 }
 
-// Positive: Проверяем получение собственных объявлений в профиле
+// TestGetMyAdvertisementsPositive проверяет получение собственного тестового объявления.
 func (s *TestSuite) TestGetMyAdvertisementsPositive() {
-	var advertisementsBody string
-	s.Run("Получаем список собственных объявлений", func() {
-		advertisementsBody = myAdvertisements.GetMyAdvertisements(s.T(), s.loginData.Token, http.StatusOK, 50)
-	})
-
-	var items gjson.Result
-	s.Run("Проверяем, что у нас есть несколько добавленных ранее объявлений", func() {
-		items = gjson.Get(advertisementsBody, "items")
-		require.NotEmpty(s.T(), items.Array())
-	})
-
-	s.Run("Проверяем, что наши объявления имеют принадлежность к нашему пользователю и объявления имеют НЕ пустые параметры", func() {
-		for _, item := range items.Array() {
-			require.Equal(s.T(), s.loginData.User.Id, gjson.Get(item.String(), "user_id").String(), "user_id не совпадает")
-
-			require.NotEmpty(s.T(), gjson.Get(item.String(), "id").String(), "id пустое")
-			require.NotEmpty(s.T(), gjson.Get(item.String(), "created_at").String(), "created_at пустое")
-			require.NotEmpty(s.T(), gjson.Get(item.String(), "updated_at").String(), "updated_at пустое")
-			require.NotEmpty(s.T(), gjson.Get(item.String(), "title").String(), "Название пустое")
-			require.NotEmpty(s.T(), gjson.Get(item.String(), "description").String(), "Описание пустое")
-			require.True(s.T(), len(gjson.Get(item.String(), "photos").Array()) > 0, "Присутствуют пустые фотографии")
-		}
-	})
+	data := advertisementModels.CreateAdvertisementRequest{
+		Title:       titlePrefix + utils.RandomString(16),
+		Description: description,
+		Price:       price,
+		Quantity:    quantity,
+		Photos:      []string{photoPath},
+	}
+	created := advertisements.CreateAdvertisement(s.T(), s.loginData.Token, data)
+	s.T().Logf("Подготовлено собственное объявление, ID=%s", created.ID)
+	body := myAdvertisements.GetMyAdvertisements(s.T(), s.loginData.Token, http.StatusOK, 50, data.Title)
+	items := gjson.Get(body, "items").Array()
+	require.Len(s.T(), items, 1, "По уникальному названию должно находиться одно собственное объявление")
+	item := items[0]
+	require.Equal(s.T(), created.ID, item.Get("id").String(), "Вернулось другое объявление")
+	require.Equal(s.T(), s.loginData.User.Id, item.Get("user_id").String(), "Объявление принадлежит другому пользователю")
+	require.Equal(s.T(), data.Title, item.Get("title").String(), "Название отличается от отправленного")
+	require.Equal(s.T(), data.Description, item.Get("description").String(), "Описание отличается от отправленного")
+	require.NotEmpty(s.T(), item.Get("created_at").String(), "Не указано время создания")
+	require.NotEmpty(s.T(), item.Get("updated_at").String(), "Не указано время обновления")
+	require.NotEmpty(s.T(), item.Get("photos").Array(), "У объявления отсутствует фотография")
+	s.T().Log("Собственное объявление найдено, поля и фотография проверены")
 }
 
-// Negative: Проверяем 401 ошибку при попытке получить собственные объявления без токена
+// TestGetMyAdvertisementsIncorrectToken проверяет ошибку получения списка с неверным токеном.
 func (s *TestSuite) TestGetMyAdvertisementsIncorrectToken() {
 	var advertisementsBody string
 	s.Run("Получаем список собственных объявлений с неправильным авторизационным токеном", func() {

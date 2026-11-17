@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"time"
 
 	"github.com/steinfletcher/apitest"
 )
@@ -44,6 +45,10 @@ func (at *ApiTest) Create() *apitest.APITest {
 	}
 	return apitestNew.
 		Intercept(func(request *http.Request) {
+			// Массовый тест ограничивает частоту запросов к учебному серверу.
+			if os.Getenv("API_SLOW_MODE") == "true" {
+				time.Sleep(300 * time.Millisecond)
+			}
 			request.Header.Set("User-Agent", at.userAgent)
 
 			if err := mergeServiceUrls(at.host, request.URL); err != nil {
